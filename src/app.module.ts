@@ -6,6 +6,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { MongooseModule, MongooseModuleOptions } from '@nestjs/mongoose';
 import mongoose from 'mongoose';
 import { NodemailerModule } from './nodemailer/nodemailer.module';
+import { JwtModule } from '@nestjs/jwt';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { NodemailerModule } from './nodemailer/nodemailer.module';
     ConfigModule.forRoot({
       isGlobal: true,
     }),
+
     UserModule,
     NodemailerModule,
   ],
