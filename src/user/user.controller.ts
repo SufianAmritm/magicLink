@@ -38,7 +38,9 @@ export class ApiController {
   })
   @Post('magic')
   async createLink(@Body() data: MagicLinkDto) {
-    return await this.apiService.createMagicLink(data.email);
+    return await this.apiService.createMagicLinkWithPlainUrlImplementations(
+      data.email,
+    );
   }
   @ApiOperation({ summary: 'Sing in with magic link' })
   @ApiBody({
@@ -52,6 +54,6 @@ export class ApiController {
   })
   @Post('magic/signIn')
   async signInWithMagicLink(@Body() data: MagicLinkSignInDto) {
-    return await this.apiService.loginWithMagic(data.link);
+    return await this.apiService.loginWithMagicPlainUrl(data.link);
   }
 }

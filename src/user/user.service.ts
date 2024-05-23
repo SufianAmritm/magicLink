@@ -1,40 +1,48 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
 import { InjectModel } from '@nestjs/mongoose';
 import { UserModel } from './models/user.model';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { MagicLinkModel } from './models/magic-link';
 import { NodeMailerService } from 'src/nodemailer/nodemailer.service';
-
+import { JwtService, TokenExpiredError } from '@nestjs/jwt';
+import { v4 } from 'uuid';
 @Injectable()
 export class ApiService {
   constructor(
     @InjectModel(UserModel.name) private readonly userModel: Model<UserModel>,
     @InjectModel(MagicLinkModel.name)
     private readonly magicLinkModel: Model<MagicLinkModel>,
+    @Inject(JwtService) private readonly jwtService: JwtService,
     private readonly nodemailer: NodeMailerService,
   ) {}
   async singUp(createUserDto: CreateUserDto) {
     return await this.userModel.create(createUserDto);
   }
-  async createMagicLink(email: string) {
+
+  async createMagicLinkWithPlainUrlImplementations(email: string) {
     const currentDateTime = new Date().getTime();
 
     const exists = await this.userModel.findOne({ email: email });
     if (!exists) return 'User does not exists';
-    const link = `somelink?identifier=${exists.oculusId}`;
 
     const magicLink = await this.magicLinkModel.findOne({ user: exists._id });
     let addAttempt = 0;
     if (magicLink) {
       const fiveMinutesAgo = currentDateTime - 5 * 60 * 1000;
       if (magicLink.lastAttemptsTime > fiveMinutesAgo) {
+        // to prevent multiple requests attacks
         if (magicLink.lastAttempts >= 3) {
           return `Wait until cooldown ${magicLink.lastAttemptsTime}`;
         }
         addAttempt = 1;
       }
     }
+    //using only device id as an identifier might not be the best idea. so we add a uuid for link. Creating a new link automatically invalidates previous ones, thus maintaining integrity.
+
+    const uuid = v4();
+    const link = `somelink?identifier=${exists.oculusId}&id=${uuid}`;
+
     const sendEmailResponse = await this.nodemailer.sendEmail(
       exists.email,
       '@ArthurSignIn',
@@ -59,23 +67,138 @@ export class ApiService {
           link: link,
           expiry: expiryDate,
           user: exists._id,
+          status: 'unused',
         });
       }
     }
     return 'Failed to send an email';
   }
 
-  async loginWithMagic(link: string) {
-    const exists = await this.magicLinkModel.findOne({ link: link });
+  // Simple login with magic link
+  async loginWithMagicPlainUrl(link: string) {
+    const exists = await this.magicLinkModel.findOne({
+      link: link,
+      status: 'unused',
+    });
     if (!exists) return 'Invalid link';
     if (exists.expiry <= new Date().getTime()) return 'Link expired';
-    if (exists.status === 'used') return 'Invalid link';
     const user = exists.user;
+
+    //Return token if main screen is our target!
     const token = 'generateTokenIfrequiredwithuserId' + user.toString();
+
+    //
+    //
+    //
+    //Or else throw an event here without any token,frontend must listen for that event, which might include a device Id, as a target.
+    //
+    //
+
     await this.magicLinkModel.updateOne(
       { _id: exists._id },
       { status: 'used' },
     );
     return token;
+  }
+
+  //Magic Link with jwts
+  async createMagicLinkWithJWTImplementations(email: string) {
+    const currentDateTime = new Date().getTime();
+
+    const exists = await this.userModel.findOne({ email: email });
+    if (!exists) return 'User does not exists';
+
+    const magicLink = await this.magicLinkModel.findOne({ user: exists._id });
+    let addAttempt = 0;
+
+    if (magicLink) {
+      const fiveMinutesAgo = currentDateTime - 5 * 60 * 1000;
+      if (magicLink.lastAttemptsTime > fiveMinutesAgo) {
+        if (magicLink.lastAttempts >= 3) {
+          return `Wait until cooldown ${magicLink.lastAttemptsTime}`;
+        }
+        addAttempt = 1;
+      }
+    }
+    const jwt = this.jwtService.sign(
+      {
+        occulusId: exists.oculusId,
+        userId: exists.id,
+      },
+      {
+        expiresIn: 125,
+      },
+    );
+    const link = `somelink?identifier=${exists.oculusId}&token=${jwt}`;
+
+    const sendEmailResponse = await this.nodemailer.sendEmail(
+      exists.email,
+      '@ArthurSignIn',
+      link,
+    );
+
+    if (sendEmailResponse && sendEmailResponse.accepted.length > 0) {
+      const expiryDate = currentDateTime + 1 * 60 * 1000 + 5000; //?? compensation time for queries or other errors;
+      if (magicLink) {
+        return await this.magicLinkModel.updateOne(
+          { _id: magicLink._id },
+          {
+            // we don't need expiry here, jwt will expire automatically
+
+            expiry: expiryDate,
+            link: link,
+            lastAttempts: addAttempt ? magicLink.lastAttempts + 1 : 0,
+            lastAttemptsTime: currentDateTime,
+            status: 'unused',
+          },
+        );
+      } else {
+        return await this.magicLinkModel.create({
+          link: link,
+          expiry: expiryDate,
+          user: exists._id,
+          status: 'unused',
+        });
+      }
+    }
+    return 'Failed to send an email';
+  }
+
+  //Login with JWT
+  async loginWithMagicUrlWithToken(token: string) {
+    try {
+      const tokenDecoded = this.jwtService.verify(token);
+
+      // get the latest link
+      const { userId } = tokenDecoded;
+      const exists = await this.magicLinkModel.findOne({
+        user: Types.ObjectId.createFromHexString(userId),
+      });
+      if (!exists) return 'Invalid link';
+      if (exists.status === 'used') return 'Invalid link';
+      const user = exists.user;
+
+      //Return token if main screen is our target!
+      const returntoken = 'generateTokenIfrequiredwithuserId' + user.toString();
+
+      //
+      //
+      //
+      //Or else throw an event here without any token,frontend must listen for that event, which might include a device Id, as a target.
+      //
+      //
+
+      await this.magicLinkModel.updateOne(
+        { _id: exists._id },
+        { status: 'used' },
+      );
+      return returntoken;
+    } catch (e) {
+      if (e instanceof TokenExpiredError) {
+        return 'Link expired';
+      } else {
+        return 'Unable to login. Something went wrong';
+      }
+    }
   }
 }
