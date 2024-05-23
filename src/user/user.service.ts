@@ -101,8 +101,8 @@ export class ApiService {
     //
     //
 
-    await this.magicLinkModel.updateOne(
-      { _id: exists._id },
+    await this.magicLinkModel.updateMany(
+      { user: exists.user, status: 'unused' },
       { status: 'used' },
     );
     return token;
@@ -200,8 +200,8 @@ export class ApiService {
       //
       //
 
-      await this.magicLinkModel.updateOne(
-        { _id: exists._id },
+      await this.magicLinkModel.updateMany(
+        { user: exists.user, status: 'unused' },
         { status: 'used' },
       );
       return returntoken;
