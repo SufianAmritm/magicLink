@@ -40,6 +40,7 @@ export class ApiController {
   async createLink(@Body() data: MagicLinkDto) {
     return await this.apiService.createMagicLinkWithPlainUrlImplementations(
       data.email,
+      data.deviceId,
     );
   }
   @ApiOperation({ summary: 'Sing in with magic link' })

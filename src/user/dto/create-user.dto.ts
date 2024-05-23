@@ -16,6 +16,9 @@ export class MagicLinkDto {
   @IsString()
   @IsNotEmpty()
   email: string;
+  @IsString()
+  @IsNotEmpty()
+  deviceId: string;
 }
 export class MagicLinkSignInDto {
   @IsString()

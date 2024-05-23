@@ -15,7 +15,9 @@ export class MagicLinkModel {
   lastAttemptsTime: number;
   @Prop({ type: String, default: 'unused' })
   status: string;
+  @Prop({ type: String, default: null })
+  deviceId: string;
 }
 const MagicLinkSchema = SchemaFactory.createForClass(MagicLinkModel);
-MagicLinkSchema.index({ user: 1 }, { unique: true });
+MagicLinkSchema.index({ user: 1, deviceId: 1 }, { unique: true });
 export { MagicLinkSchema };

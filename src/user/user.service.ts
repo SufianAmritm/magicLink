@@ -20,13 +20,19 @@ export class ApiService {
     return await this.userModel.create(createUserDto);
   }
 
-  async createMagicLinkWithPlainUrlImplementations(email: string) {
+  async createMagicLinkWithPlainUrlImplementations(
+    email: string,
+    deviceId: string,
+  ) {
     const currentDateTime = new Date().getTime();
 
     const exists = await this.userModel.findOne({ email: email });
     if (!exists) return 'User does not exists';
 
-    const magicLink = await this.magicLinkModel.findOne({ user: exists._id });
+    const magicLink = await this.magicLinkModel.findOne({
+      user: exists._id,
+      deviceId: deviceId,
+    });
     let addAttempt = 0;
     if (magicLink) {
       const fiveMinutesAgo = currentDateTime - 5 * 60 * 1000;
@@ -41,7 +47,7 @@ export class ApiService {
     //using only device id as an identifier might not be the best idea. so we add a uuid for link. Creating a new link automatically invalidates previous ones, thus maintaining integrity.
 
     const uuid = v4();
-    const link = `somelink?identifier=${exists.oculusId}&id=${uuid}`;
+    const link = `somelink?identifier=${deviceId}&id=${uuid}`;
 
     const sendEmailResponse = await this.nodemailer.sendEmail(
       exists.email,
@@ -68,6 +74,7 @@ export class ApiService {
           expiry: expiryDate,
           user: exists._id,
           status: 'unused',
+          deviceId: deviceId,
         });
       }
     }
@@ -102,13 +109,16 @@ export class ApiService {
   }
 
   //Magic Link with jwts
-  async createMagicLinkWithJWTImplementations(email: string) {
+  async createMagicLinkWithJWTImplementations(email: string, deviceId: string) {
     const currentDateTime = new Date().getTime();
 
     const exists = await this.userModel.findOne({ email: email });
     if (!exists) return 'User does not exists';
 
-    const magicLink = await this.magicLinkModel.findOne({ user: exists._id });
+    const magicLink = await this.magicLinkModel.findOne({
+      user: exists._id,
+      deviceId: deviceId,
+    });
     let addAttempt = 0;
 
     if (magicLink) {
@@ -122,14 +132,14 @@ export class ApiService {
     }
     const jwt = this.jwtService.sign(
       {
-        occulusId: exists.oculusId,
+        deviceId: deviceId,
         userId: exists.id,
       },
       {
         expiresIn: 125,
       },
     );
-    const link = `somelink?identifier=${exists.oculusId}&token=${jwt}`;
+    const link = `somelink?identifier=${deviceId}&token=${jwt}`;
 
     const sendEmailResponse = await this.nodemailer.sendEmail(
       exists.email,
@@ -158,6 +168,7 @@ export class ApiService {
           expiry: expiryDate,
           user: exists._id,
           status: 'unused',
+          deviceId: deviceId,
         });
       }
     }
@@ -165,14 +176,15 @@ export class ApiService {
   }
 
   //Login with JWT
-  async loginWithMagicUrlWithToken(token: string) {
+  async loginMagicUrlWithToken(token: string) {
     try {
       const tokenDecoded = this.jwtService.verify(token);
 
       // get the latest link
-      const { userId } = tokenDecoded;
+      const { userId, deviceId } = tokenDecoded;
       const exists = await this.magicLinkModel.findOne({
         user: Types.ObjectId.createFromHexString(userId),
+        deviceId: deviceId,
       });
       if (!exists) return 'Invalid link';
       if (exists.status === 'used') return 'Invalid link';
